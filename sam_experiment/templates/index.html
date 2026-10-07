@@ -1,0 +1,639 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SAM 综合实验平台</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="app-shell">
+
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark">🛰️</span>
+        <div class="brand-text">
+          <strong>SAM 实验平台</strong>
+          <span>遥感图像综合实验</span>
+        </div>
+      </div>
+
+      <nav class="nav" aria-label="功能导航">
+        <button class="nav-item" data-tab="overview">
+          <span class="nav-icon">🏠</span><span>概览</span>
+        </button>
+        <button class="nav-item" data-tab="segment">
+          <span class="nav-icon">🖼️</span><span>自动分割</span>
+        </button>
+        <button class="nav-item" data-tab="classify">
+          <span class="nav-icon">🧠</span><span>主体分类</span>
+        </button>
+        <button class="nav-item" data-tab="annotate">
+          <span class="nav-icon">🖌️</span><span>标注编辑</span>
+        </button>
+        <button class="nav-item" data-tab="report">
+          <span class="nav-icon">📈</span><span>报告生成</span>
+        </button>
+        <button class="nav-item" data-tab="video">
+          <span class="nav-icon">🎬</span><span>视频分析</span>
+        </button>
+        <button class="nav-item" data-tab="shp">
+          <span class="nav-icon">🗺️</span><span>Shp 预览</span>
+        </button>
+        <button class="nav-item" data-tab="settings">
+          <span class="nav-icon">🔑</span><span>DeepSeek 配置</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <span class="status-dot"></span>
+        <span>服务运行中</span>
+      </div>
+    </aside>
+
+    <main class="content">
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <section class="messages">
+            {% for category, message in messages %}
+              <div class="message {{ category }}">{{ message }}</div>
+            {% endfor %}
+          </section>
+        {% endif %}
+      {% endwith %}
+
+      <!-- ======================= 概览 ======================= -->
+      <section id="tab-overview" class="tab-panel">
+        <div class="page-head">
+          <h1>概览</h1>
+          <p>一站式完成遥感图像的自动分割、半自动标注、报告生成与视频分析。</p>
+        </div>
+
+        <div class="feature-grid">
+          <div class="feature-card" data-goto="segment">
+            <div class="feature-icon">🖼️</div>
+            <h3>自动分割</h3>
+            <p>调用 SAM 模型对遥感图像进行自动实例分割。</p>
+            <span class="feature-link">前往使用 →</span>
+          </div>
+          <div class="feature-card" data-goto="annotate">
+            <div class="feature-icon">🖌️</div>
+            <h3>半自动标注</h3>
+            <p>类别修正、实例合并、重分割、点提示新增实例。</p>
+            <span class="feature-link">前往使用 →</span>
+          </div>
+          <div class="feature-card" data-goto="report">
+            <div class="feature-icon">📈</div>
+            <h3>报告生成</h3>
+            <p>基于标注自动生成规则报告与 DeepSeek 大模型报告。</p>
+            <span class="feature-link">前往使用 →</span>
+          </div>
+          <div class="feature-card" data-goto="video">
+            <div class="feature-icon">🎬</div>
+            <h3>视频分析</h3>
+            <p>对无人机视频抽帧分割，输出汇总分析报告。</p>
+            <span class="feature-link">前往使用 →</span>
+          </div>
+        </div>
+
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="stat-value">{{ recent_annotations|length }}</div>
+            <div class="stat-label">最近标注</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">{{ recent_shp_previews|length }}</div>
+            <div class="stat-label">Shp 预览</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">{{ annotation.instances|length if annotation else 0 }}</div>
+            <div class="stat-label">当前实例</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">{{ "已配置" if deepseek_state.has_api_key else "未配置" }}</div>
+            <div class="stat-label">DeepSeek</div>
+          </div>
+        </div>
+
+        <div class="two-col">
+          <div class="card">
+            <h2>最近标注</h2>
+            <ul class="simple-list">
+              {% for item in recent_annotations %}
+                <li><a href="{{ url_for('index', annotation=item, tab='annotate') }}">{{ item }}</a></li>
+              {% else %}
+                <li>暂无历史标注</li>
+              {% endfor %}
+            </ul>
+          </div>
+
+          <div class="card">
+            <h2>最近 Shp 预览</h2>
+            <ul class="simple-list">
+              {% for item in recent_shp_previews %}
+                <li><a href="{{ url_for('index', shp_preview=item, tab='shp') }}">{{ item }}</a></li>
+              {% else %}
+                <li>暂无 Shp 预览</li>
+              {% endfor %}
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- ======================= 自动分割 ======================= -->
+      <section id="tab-segment" class="tab-panel">
+        <div class="page-head">
+          <h1>自动分割</h1>
+          <p>上传一张遥感图像，调用 SAM 完成自动实例分割，随后可在「标注编辑」中修正结果。</p>
+        </div>
+
+        <div class="card">
+          <h2>上传图像</h2>
+          <form method="post" action="{{ url_for('segment') }}" class="stack" enctype="multipart/form-data">
+            <label>
+              选择图像文件
+              <input type="file" name="image_file" accept="image/*,.tif,.tiff,.bmp,.webp" required>
+            </label>
+            <button type="submit">🚀 运行 SAM 自动分割</button>
+          </form>
+          <p class="hint">支持上传 PNG、JPG、BMP、TIFF、WEBP 等常见图像格式。</p>
+        </div>
+
+        <div class="card">
+          <h2>操作流程</h2>
+          <ol class="step-list">
+            <li><strong>上传图像</strong> — 选择一张遥感图像文件。</li>
+            <li><strong>自动分割</strong> — SAM 生成实例掩码与叠加结果。</li>
+            <li><strong>标注修正</strong> — 到「标注编辑」调整类别、合并或重分割实例。</li>
+          </ol>
+        </div>
+      </section>
+
+      <!-- ======================= 标注编辑 ======================= -->
+      <section id="tab-annotate" class="tab-panel">
+        <div class="page-head">
+          <h1>标注编辑</h1>
+          <p>对分割结果进行类别修正、实例合并、重分割，以及基于点提示新增实例。</p>
+          <button type="button" class="btn-secondary page-head-action" data-goto="classify">🧠 前往主体分类</button>
+        </div>
+
+        {% if not annotation %}
+          <div class="card empty-state">
+            <div class="empty-icon">🖌️</div>
+            <h2>暂无可用标注</h2>
+            <p>请先在「自动分割」中上传图像并完成分割，或从「概览」中选择一份历史标注。</p>
+            <button type="button" class="btn-secondary" data-goto="segment">前往自动分割</button>
+          </div>
+        {% else %}
+          <div class="annotate-main">
+              <section class="card">
+                <h2>当前标注</h2>
+                <div class="meta-grid">
+                  <div><strong>标注文件：</strong><code>{{ annotation.annotation_path }}</code></div>
+                  <div><strong>图像：</strong><code>{{ annotation.image_path }}</code></div>
+                  <div><strong>实例总数：</strong>{{ annotation.instances|length }}</div>
+                  <div><strong>类别列表：</strong>{{ annotation.classes|join("、") }}</div>
+                </div>
+              </section>
+
+              <section class="viewer-layout">
+                <div class="card viewer-card">
+                  <h2>叠加结果</h2>
+                  <p class="hint">当前叠加图已按类别统一着色。点击图像可自动记录点坐标，用于「基于点提示新增实例」。</p>
+                  <div class="overlay-stage" id="overlay-stage">
+                    <img
+                      id="overlay-image"
+                      class="overlay-image"
+                      src="{{ url_for('artifact', relative_path=annotation.overlay_path) }}"
+                      alt="overlay"
+                    >
+                    <div class="instance-box-layer">
+                      {% for item in annotation.instances %}
+                        <button
+                          type="button"
+                          class="instance-box"
+                          data-category="{{ item.category }}"
+                          data-instance-id="{{ item.id }}"
+                          title="实例 {{ item.id }} - {{ item.category }}"
+                          style="left: {{ item.bbox_style.left }}; top: {{ item.bbox_style.top }}; width: {{ item.bbox_style.width }}; height: {{ item.bbox_style.height }}; border-color: {{ item.category_color }};"
+                        ></button>
+                      {% endfor %}
+                    </div>
+                  </div>
+                </div>
+
+                <div class="card">
+                  <h2>编辑操作</h2>
+                  <div class="edit-forms">
+
+                    <form method="post" action="{{ url_for('update_category') }}" class="edit-form">
+                      <h3>修正实例类别</h3>
+                      <input type="hidden" name="annotation_path" value="{{ annotation.annotation_path }}">
+                      <label>实例 ID <input type="number" name="instance_id" min="1" required></label>
+                      <label>新类别 <input type="text" name="category" placeholder="plane / ship / 自定义类别" required></label>
+                      <button type="submit">修正实例类别</button>
+                    </form>
+
+                    <form method="post" action="{{ url_for('merge_instances') }}" class="edit-form">
+                      <h3>合并过度分割实例</h3>
+                      <input type="hidden" name="annotation_path" value="{{ annotation.annotation_path }}">
+                      <label>待合并实例 ID <input type="text" name="instance_ids" placeholder="2,3,5" required></label>
+                      <label>合并后类别 <input type="text" name="merged_category" placeholder="可选"></label>
+                      <button type="submit">合并实例</button>
+                    </form>
+
+                    <form method="post" action="{{ url_for('resegment') }}" class="edit-form">
+                      <h3>对实例再次调用模型</h3>
+                      <input type="hidden" name="annotation_path" value="{{ annotation.annotation_path }}">
+                      <label>需要继续分割的实例 ID <input type="number" name="instance_id" min="1" required></label>
+                      <button type="submit">重分割实例</button>
+                    </form>
+
+                    <form method="post" action="{{ url_for('add_point_instance') }}" class="edit-form" id="point-form">
+                      <h3>基于点提示新增实例</h3>
+                      <input type="hidden" name="annotation_path" value="{{ annotation.annotation_path }}">
+                      <div class="row-inputs">
+                        <label>X 坐标 <input type="number" id="point-x" name="x" min="0" required></label>
+                        <label>Y 坐标 <input type="number" id="point-y" name="y" min="0" required></label>
+                      </div>
+                      <label>新实例类别 <input type="text" name="point_category" placeholder="新建类别或已有类别" required></label>
+                      <button type="submit">新增实例</button>
+                    </form>
+
+                  </div>
+                </div>
+              </section>
+
+              <section class="card">
+                <h2>实例列表</h2>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>ID</th>
+                        <th>类别</th>
+                        <th>面积</th>
+                        <th>中心</th>
+                        <th>边界框</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for item in annotation.instances %}
+                        <tr class="instance-row" data-category="{{ item.category }}" data-instance-id="{{ item.id }}">
+                          <td>{{ item.id }}</td>
+                          <td>
+                            <span class="category-badge" style="background: {{ item.category_color }};">{{ item.category }}</span>
+                          </td>
+                          <td>{{ item.area }}</td>
+                          <td>{{ item.center }}</td>
+                          <td>{{ item.bbox }}</td>
+                        </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </div>
+        {% endif %}
+      </section>
+
+      <!-- ======================= 主体分类 ======================= -->
+      <section id="tab-classify" class="tab-panel">
+        <div class="page-head">
+          <h1>主体分类</h1>
+          <p>对已分割的主体实例执行自动分类，并按类别统一查看、筛选与命名。</p>
+        </div>
+
+        {% if not annotation %}
+          <div class="card empty-state">
+            <div class="empty-icon">🧠</div>
+            <h2>暂无可用标注</h2>
+            <p>请先在「自动分割」中上传图像并完成分割，或从「概览」中选择一份历史标注。</p>
+            <button type="button" class="btn-secondary" data-goto="segment">前往自动分割</button>
+          </div>
+        {% else %}
+          <div class="classify-layout">
+            <section class="card">
+              <h2>自动分类</h2>
+              <p class="hint">选择分类方式后，对当前标注的全部主体执行自动分类，并按类别重新着色。</p>
+              <form method="post" action="{{ url_for('classify_instances') }}" class="stack">
+                <input type="hidden" name="annotation_path" value="{{ annotation.annotation_path }}">
+                <label>
+                  分类方式
+                  <select name="provider">
+                    <option value="deepseek">DeepSeek 辅助命名</option>
+                    <option value="rule">规则聚类命名</option>
+                  </select>
+                </label>
+                <button type="submit">🧠 自动分类全部主体</button>
+              </form>
+            </section>
+
+            <section class="card">
+              <h2>主体类别</h2>
+              <p class="hint">点击某个类别可跳转到「标注编辑」页，并统一框选对应主体。</p>
+              <div class="category-filter-list">
+                <button type="button" class="category-filter active" data-category="all" data-jump-tab="annotate">
+                  <span class="category-swatch all"></span>
+                  <span class="category-label">全部类别</span>
+                  <span class="category-count">{{ annotation.instances|length }}</span>
+                </button>
+                {% for item in annotation.category_sidebar %}
+                  <button type="button" class="category-filter" data-category="{{ item.name }}" data-jump-tab="annotate">
+                    <span class="category-swatch" style="background: {{ item.color }};"></span>
+                    <span class="category-label">{{ item.name }}</span>
+                    <span class="category-count">{{ item.count }}</span>
+                  </button>
+                {% endfor %}
+              </div>
+            </section>
+
+            {% if annotation.classification_summary and annotation.classification_summary.clusters %}
+              <section class="card summary-card">
+                <h2>分类摘要</h2>
+                <div class="summary-meta">
+                  <div><strong>来源：</strong>{{ annotation.classification_summary.provider }}</div>
+                  <div><strong>类别数：</strong>{{ annotation.classification_summary.cluster_count }}</div>
+                </div>
+                <ul class="cluster-list">
+                  {% for cluster in annotation.classification_summary.clusters %}
+                    <li>
+                      <span class="cluster-dot" style="background: {{ cluster.color }};"></span>
+                      <div>
+                        <strong>{{ cluster.category }}</strong>
+                        <div class="cluster-meta">
+                          {{ cluster.count }} 个实例，{{ cluster.size_hint }} / {{ cluster.shape_hint }} / {{ cluster.position_hint }}
+                        </div>
+                      </div>
+                    </li>
+                  {% endfor %}
+                </ul>
+              </section>
+            {% endif %}
+          </div>
+        {% endif %}
+      </section>
+
+      <!-- ======================= 报告生成 ======================= -->
+      <section id="tab-report" class="tab-panel">
+        <div class="page-head">
+          <h1>报告生成</h1>
+          <p>基于标注结果自动生成图像分析报告，并支持调用 DeepSeek 生成大模型报告。</p>
+        </div>
+
+        {% if not annotation %}
+          <div class="card empty-state">
+            <div class="empty-icon">📈</div>
+            <h2>暂无可用标注</h2>
+            <p>请先在「自动分割」中完成分割，或从「概览」选择一份历史标注后再生成报告。</p>
+            <button type="button" class="btn-secondary" data-goto="segment">前往自动分割</button>
+          </div>
+        {% else %}
+          <section class="card">
+            <h2>生成报告</h2>
+            <p class="hint">规则报告可离线生成；DeepSeek 报告支持网页输入、配置文件读取或环境变量 <code>{{ deepseek_env_name }}</code>。</p>
+            <div class="report-actions">
+              <form method="post" action="{{ url_for('generate_report') }}" class="stack">
+                <input type="hidden" name="annotation_path" value="{{ annotation.annotation_path }}">
+                <input type="hidden" name="provider" value="rule">
+                <button type="submit">📄 生成规则报告</button>
+              </form>
+              <form method="post" action="{{ url_for('generate_report') }}" class="stack">
+                <input type="hidden" name="annotation_path" value="{{ annotation.annotation_path }}">
+                <input type="hidden" name="provider" value="deepseek">
+                <button type="submit" class="btn-deepseek">✨ 生成 DeepSeek 报告</button>
+              </form>
+            </div>
+          </section>
+
+          <section class="card">
+            <h2>当前报告</h2>
+            {% if annotation.report_path or annotation.deepseek_report_path %}
+              <div class="report-type-tabs">
+                {% if annotation.report_path %}
+                  <a class="pill {% if selected_report_type != 'deepseek' %}active{% endif %}"
+                     href="{{ url_for('index', annotation=annotation.annotation_path, report_type='rule', tab='report') }}">规则报告</a>
+                {% endif %}
+                {% if annotation.deepseek_report_path %}
+                  <a class="pill {% if selected_report_type == 'deepseek' %}active{% endif %}"
+                     href="{{ url_for('index', annotation=annotation.annotation_path, report_type='deepseek', tab='report') }}">DeepSeek 报告</a>
+                {% endif %}
+              </div>
+              <div class="report-links">
+                {% if annotation.report_path %}
+                  <a href="{{ url_for('artifact', relative_path=annotation.report_path) }}">打开规则 Markdown</a>
+                {% endif %}
+                {% if annotation.deepseek_report_path %}
+                  <a href="{{ url_for('artifact', relative_path=annotation.deepseek_report_path) }}">打开 DeepSeek Markdown</a>
+                {% endif %}
+              </div>
+              <p class="hint">当前显示：{{ "DeepSeek 报告" if selected_report_type == "deepseek" else "规则报告" }}</p>
+              <pre class="report-box">{{ report_text }}</pre>
+            {% else %}
+              <div class="inline-empty">尚未生成任何报告，请点击上方按钮生成。</div>
+            {% endif %}
+          </section>
+        {% endif %}
+      </section>
+
+      <!-- ======================= 视频分析 ======================= -->
+      <section id="tab-video" class="tab-panel">
+        <div class="page-head">
+          <h1>视频分析</h1>
+          <p>对无人机视频按固定间隔抽帧，执行分割并汇总输出视频分析报告。</p>
+        </div>
+
+        <div class="card">
+          <h2>上传视频</h2>
+          <form method="post" action="{{ url_for('analyze_video') }}" class="stack" enctype="multipart/form-data">
+            <label>
+              选择视频文件
+              <input type="file" name="video_file" accept="video/*,.mp4,.avi,.mov,.mkv,.wmv,.webm,.m4v" required>
+            </label>
+            <div class="row-inputs">
+              <label>
+                抽帧间隔
+                <input type="number" name="frame_interval" value="30" min="1">
+              </label>
+              <label>
+                最大抽帧数
+                <input type="number" name="max_frames" value="5" min="1" max="20">
+              </label>
+            </div>
+            <button type="submit">🎬 开始视频分析</button>
+          </form>
+          <p class="hint">支持上传 MP4、AVI、MOV、MKV、WMV、WEBM、M4V 等常见视频格式。</p>
+        </div>
+      </section>
+
+      <!-- ======================= Shp 预览 ======================= -->
+      <section id="tab-shp" class="tab-panel">
+        <div class="page-head">
+          <h1>Shp 标注预览</h1>
+          <p>上传 Shapefile 组件，快速查看标注的样例点位置、几何范围与属性摘要。</p>
+        </div>
+
+        <div class="card">
+          <h2>上传 Shapefile</h2>
+          <form method="post" action="{{ url_for('upload_shp_preview') }}" class="stack" enctype="multipart/form-data">
+            <label>
+              选择 Shapefile 组件
+              <input type="file" name="shp_files" accept=".shp,.dbf,.shx,.prj,.cpg,.qpj" multiple required>
+            </label>
+            <button type="submit">🗺️ 上传并生成标注预览</button>
+          </form>
+          <p class="hint">建议至少同时上传 <code>.shp</code>、<code>.dbf</code>、<code>.shx</code>，页面会生成样例点位置、几何统计和缩略图。</p>
+        </div>
+
+        {% if shp_preview %}
+          <section class="card">
+            <h2>Shp 标注概览</h2>
+            <div class="meta-grid">
+              <div><strong>来源文件：</strong><code>{{ shp_preview.source_name }}</code></div>
+              <div><strong>预览文件：</strong><code>{{ shp_preview.preview_path }}</code></div>
+              <div><strong>记录数：</strong>{{ shp_preview.record_count }}</div>
+              <div><strong>坐标范围：</strong>{{ shp_preview.bounds }}</div>
+            </div>
+            <div class="report-links">
+              <a href="{{ url_for('artifact', relative_path=shp_preview.preview_path) }}">打开预览 JSON</a>
+            </div>
+          </section>
+
+          <section class="viewer-layout">
+            <div class="card viewer-card">
+              <h2>Shp 几何可视化</h2>
+              <svg
+                class="shp-preview"
+                viewBox="0 0 {{ shp_preview.svg.width }} {{ shp_preview.svg.height }}"
+                role="img"
+                aria-label="Shapefile geometry preview"
+              >
+                <rect x="0" y="0" width="{{ shp_preview.svg.width }}" height="{{ shp_preview.svg.height }}" rx="14" class="shp-bg"></rect>
+                {% for element in shp_preview.svg.elements %}
+                  {% if element.kind == "path" %}
+                    <path
+                      d="{{ element.d }}"
+                      class="shp-path"
+                      data-record-index="{{ element.record_index }}"
+                    ></path>
+                  {% elif element.kind == "circle" %}
+                    <circle
+                      cx="{{ element.cx }}"
+                      cy="{{ element.cy }}"
+                      r="{{ element.r }}"
+                      class="shp-point"
+                      data-record-index="{{ element.record_index }}"
+                    ></circle>
+                  {% endif %}
+                {% endfor %}
+              </svg>
+              <p class="hint">这是按 Shapefile 边界归一化后的平面预览，用来快速查看点、线、面标注的空间分布。</p>
+            </div>
+
+            <div class="card">
+              <h2>Shp 统计信息</h2>
+              <div class="meta-grid">
+                <div><strong>字段：</strong>{{ shp_preview.fields|join("、") if shp_preview.fields else "无属性字段" }}</div>
+                <div><strong>几何类型统计：</strong>{{ shp_preview.shape_counts }}</div>
+              </div>
+            </div>
+          </section>
+
+          <section class="card">
+            <h2>样例记录</h2>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>序号</th>
+                    <th>类型</th>
+                    <th>点数</th>
+                    <th>中心点</th>
+                    <th>边界框</th>
+                    <th>属性样例</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for item in shp_preview.sample_records %}
+                    <tr class="shp-record-row" data-record-index="{{ item.index }}">
+                      <td>{{ item.index }}</td>
+                      <td>{{ item.shape_type }}</td>
+                      <td>{{ item.point_count }}</td>
+                      <td>{{ item.centroid }}</td>
+                      <td>{{ item.bbox }}</td>
+                      <td>
+                        {% if item.attributes %}
+                          {% for key, value in item.attributes.items() %}
+                            <div><code>{{ key }}</code>: {{ value }}</div>
+                          {% endfor %}
+                        {% else %}
+                          无
+                        {% endif %}
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        {% endif %}
+      </section>
+
+      <!-- ======================= DeepSeek 配置 ======================= -->
+      <section id="tab-settings" class="tab-panel">
+        <div class="page-head">
+          <h1>DeepSeek 配置</h1>
+          <p>配置用于生成大模型报告的 DeepSeek API 参数，可选择仅当前会话或保存到本地配置文件。</p>
+        </div>
+
+        <div class="card">
+          <h2>当前状态</h2>
+          <div class="meta-grid">
+            <div><strong>当前来源：</strong>{{ deepseek_state.source }}</div>
+            <div><strong>Key 状态：</strong>{{ deepseek_state.masked_api_key }}</div>
+            <div><strong>模型：</strong><code>{{ deepseek_state.model }}</code></div>
+          </div>
+          <p class="hint">
+            配置文件：<code>{{ deepseek_state.config_file_path }}</code>
+            {% if deepseek_state.config_file_exists %}
+              （已存在，Key: {{ deepseek_state.config_file_masked_key }}）
+            {% else %}
+              （尚未创建）
+            {% endif %}
+          </p>
+        </div>
+
+        <div class="card">
+          <h2>保存配置</h2>
+          <form method="post" action="{{ url_for('save_deepseek_config') }}" class="stack">
+            <label>
+              API Key
+              <input type="password" name="api_key" placeholder="输入 DeepSeek API Key">
+            </label>
+            <label>
+              Base URL
+              <input type="text" name="base_url" value="{{ deepseek_state.base_url }}">
+            </label>
+            <label>
+              模型名
+              <input type="text" name="model" value="{{ deepseek_state.model }}">
+            </label>
+            <label>
+              保存方式
+              <select name="save_mode">
+                <option value="session">仅当前网页会话</option>
+                <option value="file">保存到本地配置文件</option>
+              </select>
+            </label>
+            <button type="submit">💾 保存 DeepSeek 配置</button>
+          </form>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
